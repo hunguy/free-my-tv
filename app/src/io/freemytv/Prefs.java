@@ -158,8 +158,17 @@ final class Prefs {
     static String forecast() { return "days".equals(sp().getString("forecast", "hours")) ? "days" : "hours"; }
     static void setForecast(String v) { put("forecast", v); }
 
-    static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
-    static void setQuotes(boolean on) { put("quotes", on); }
+    /** "quotes", "system" or "off". Older installs only had a quotes on/off switch. */
+    static String widget() {
+        String v = app == null ? null : sp().getString("widget", null);
+        if ("system".equals(v) || "off".equals(v) || "quotes".equals(v)) return v;
+        return (app == null ? Config.SHOW_CRYPTO : sp().getBoolean("quotes", Config.SHOW_CRYPTO)) ? "quotes" : "off";
+    }
+
+    static void setWidget(String v) { put("widget", v); }
+
+    static boolean quotes() { return "quotes".equals(widget()); }
+    static boolean system() { return "system".equals(widget()); }
 
     /** Your photos (Photos, sent from a computer) on the screensaver and behind the home screen, once imported. */
     static boolean photos() { return sp().getBoolean("photos", true); }
@@ -167,6 +176,21 @@ final class Prefs {
 
     static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
     static void setCoin(int i, boolean on) { put("coin" + i, on); }
+
+    /** Packages the big cards may use; null = every TMDB service that's installed. */
+    static List<String> recsApps() {
+        String v = sp().getString("recs", null);
+        if (v == null) return null;
+        List<String> out = new ArrayList<>();
+        for (String p : v.split(",")) if (!p.isEmpty()) out.add(p);
+        return out;
+    }
+
+    static void setRecsApps(List<String> packages) {
+        StringBuilder sb = new StringBuilder();
+        for (String p : packages) sb.append(sb.length() == 0 ? "" : ",").append(p);
+        put("recs", sb.toString());
+    }
 
     // MARK: - Shelf
 

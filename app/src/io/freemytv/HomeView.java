@@ -233,7 +233,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Frames
     private boolean running, tilesDirty, statusDirty, heroDirty, drawerDirty, gridDirty, motionDirty = true;
     private boolean drawerWasMoving, idle;
-    private long lastNanos, resumedAt, lastStep;
+    private long lastNanos, resumedAt, lastStep, lastStats;
     private static final long BURST_MS = 1500;
     private int w, h;
     private float k = 1;
@@ -353,6 +353,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             wake();
             data.refreshIfStale();
             recs.refreshIfStale();
+            if (Prefs.system()) data.refreshStats();
             checkNotices();
             updatePalette();
             checkNight(true);
@@ -437,6 +438,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         data.refreshIfStale();
         recs.refreshIfStale();
         Photos.importInbox(getContext(), ownReady);   // photos a computer just sent
+        if (Prefs.system()) data.refreshStats();
         if (tvInputs != null) tvInputs.registerCallback(inputCallback, handler);
         handler.postDelayed(tick, 15_000);
         checkNotices();
@@ -532,6 +534,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         checkNight(true);
         layoutStatus();
         heroDirty = statusDirty = drawerDirty = true;
+        status.invalidate();
+        drawerLayer.invalidate();
         platter.invalidate();
     }
 
@@ -716,6 +720,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (bgFading || (drawerWasMoving && !drawerMoving)) platter.invalidate();
         drawerWasMoving = drawerMoving;
         tilesDirty = statusDirty = heroDirty = drawerDirty = gridDirty = motionDirty = false;
+        if (Prefs.system() && up - lastStats >= 2000) {
+            lastStats = up;
+            if (data.refreshStats()) {   // the corner row and the drawer's card
+                heroLayer.invalidate();
+                drawerLayer.invalidate();
+            }
+        }
         if (updateClock()) {
             layoutStatus();
             status.invalidate();
@@ -1319,6 +1330,48 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** 0 to 1: how much the shelf has the focus (drawTiles works it out, drawShelfTile shades the other tiles by it). */
     private float shelfOn;
 
+    /** Measured once per value change: this row is redrawn on every frame of the corner buttons' focus animation. */
+    private final String[] stats = {"", "", "", "", "", ""};
+    private final float[] statsWidths = new float[6];
+    private String statsKey = "";
+
+    /** RAM used, CPU used and free storage, in the corner where the quotes go. */
+    private void drawStats(Canvas c) {
+        boolean clock = !picksOn();
+        applyTone();
+        Paint text = clock ? lClockQuote : lQuote;
+        float fade = 1;
+        for (int i = 3; i < 3 + lightButtons.size() && !clock; i++) fade = Math.min(fade, 1 - Ui.clamp(topFocus[i].value));
+        if (fade <= 0.01f) return;
+        int textColor = text.getColor();
+        text.setColor(Ui.alpha(textColor, fade));
+        String key = HomeData.ramText() + "|" + HomeData.cpuText() + "|" + HomeData.storageText() + "|"
+                + Ui.language + "|" + text.getTextSize();
+        if (!key.equals(statsKey)) {
+            statsKey = key;
+            stats[0] = "RAM";
+            stats[1] = HomeData.ramText();
+            stats[2] = "CPU";
+            stats[3] = HomeData.cpuText();
+            stats[4] = Ui.tr("Free");
+            stats[5] = HomeData.storageText();
+            for (int i = 0; i < 6; i++) statsWidths[i] = text.measureText(stats[i]);
+        }
+        float gap = (clock ? 8 : 6) * k, spacing = (clock ? 32 : 24) * k, total = spacing * 2;
+        for (int i = 0; i < 3; i++) total += statsWidths[i * 2] + gap + statsWidths[i * 2 + 1];
+        float base = clock ? L_QUOTES_BASE * k : (L_TABBAR_TOP + L_TABBAR_H / 2) * k + Ui.halfCap(text);
+        float x = clock ? MARGIN * k : CONTENT_R * k - total;   // the clock design has no tab bar: the row starts at the margin
+        int dim = Ui.alpha(tone(0xB38E8E93, 0x8CFFFFFF), fade);
+        for (int i = 0; i < 3; i++) {
+            text.setColor(dim);
+            c.drawText(stats[i * 2], x, base, text);
+            x += statsWidths[i * 2] + gap;
+            text.setColor(textColor);
+            c.drawText(stats[i * 2 + 1], x, base, text);
+            x += statsWidths[i * 2 + 1] + spacing;
+        }
+    }
+
     private void drawTiles(Canvas c) {
         // The focused one last: it grows over its neighbors without being covered by them.
         int top = -1;
@@ -1564,7 +1617,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             x += tw + gap;
         }
         float cardsTop = CARDS_TOP * k, split = left + (right - left) * 0.585f;
-        boolean wx = Prefs.weather(), qt = Prefs.quotes() && HomeData.active().length > 0;
+        boolean wx = Prefs.weather(), qt = Prefs.system() || (Prefs.quotes() && HomeData.active().length > 0);
         // A card that is off gives its room to the other one.
         weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
         quotesCard.set(wx ? split + 16 * k : left, cardsTop, right, cardsTop + CARDS_H * k);
@@ -1642,7 +1695,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < drawerItems.size(); i++) if (i != top) drawDrawerTile(c, i);
         if (top >= 0) drawDrawerTile(c, top);
         if (Prefs.weather()) drawWeatherCard(c, weatherCard);
-        if (Prefs.quotes() && HomeData.active().length > 0) drawQuotesCard(c, quotesCard);
+        if (Prefs.system()) drawStatsCard(c, quotesCard);
+        else if (Prefs.quotes() && HomeData.active().length > 0) drawQuotesCard(c, quotesCard);
     }
 
     /** Square drawer button: symbol and name; an input with no device is dimmed. Focused: white, with dark text. */
@@ -1782,12 +1836,26 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         else drawPrices(c, r);
     }
 
+    private void drawStatsCard(Canvas c, RectF r) {
+        drawerCard(c, r);
+        float x = r.left + 34 * k, right = r.right - 34 * k;
+        c.drawText(Ui.tr("System"), x, r.top + 54 * k, cardTitle);
+        String[] labels = {"RAM", "CPU", Ui.tr("Free storage")};
+        String[] values = {HomeData.ramText(), HomeData.cpuText(), HomeData.storageText()};
+        for (int i = 0; i < 3; i++) {
+            float base = r.top + (110 + 52 * i) * k;
+            c.drawText(labels[i], x, base, cardText);
+            c.drawText(values[i], right, base, pricePaint);
+        }
+    }
+
     /**
      * What the drawer cards show depends on: the data, the settings, the language, day or night, and the minute (the
      * sunrise and sunset, "12 min ago").
      */
     private String drawerCardsKey() {
-        return data.weatherAt + "|" + data.pricesAt + "|" + Prefs.version + "|" + Ui.language + "|"
+        return data.weatherAt + "|" + data.pricesAt + "|" + data.ramPct + "|" + data.cpuPct + "|" + data.freeStorage
+                + "|" + Prefs.version + "|" + Ui.language + "|"
                 + Float.floatToIntBits(dark()) + "|" + System.currentTimeMillis() / 60_000;
     }
 
@@ -2649,7 +2717,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = shelfFirst; i < Math.min(shelf.size(), shelfFirst + shelfVisible); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
         if (drawerOpen && Prefs.weather()) out.add(a11yId(WIDGETS, 0));
-        if (drawerOpen && Prefs.quotes() && HomeData.active().length > 0) out.add(a11yId(WIDGETS, 1));
+        if (drawerOpen && Prefs.system()) out.add(a11yId(WIDGETS, 1));
+        else if (drawerOpen && Prefs.quotes() && HomeData.active().length > 0) out.add(a11yId(WIDGETS, 1));
     }
 
     private String a11yText(int id) {
@@ -2669,7 +2738,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 }
                 return label(shelf, i);
             case Z_DRAWER: return label(drawerItems, i);
-            case WIDGETS: return i == 0 ? weatherText() : quotesText();
+            case WIDGETS: return i == 0 ? weatherText() : Prefs.system() ? statsText() : quotesText();
             default: return "";
         }
     }
@@ -2744,7 +2813,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         List<Integer> out = new ArrayList<>();
         if (!drawerOpen) return out;
         if (Prefs.weather()) out.add(0);
-        if (Prefs.quotes() && HomeData.active().length > 0) out.add(1);
+        if (Prefs.system() || (Prefs.quotes() && HomeData.active().length > 0)) out.add(1);
         return out;
     }
 
@@ -2848,6 +2917,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     /** The quotes card as TalkBack reads it: each coin with its price and 24 h change. */
+    private String statsText() {
+        return Ui.tr("System") + ". RAM " + HomeData.ramText() + ", CPU " + HomeData.cpuText() + ", "
+                + Ui.tr("Free storage") + " " + HomeData.storageText() + ".";
+    }
+
     private String quotesText() {
         StringBuilder s = new StringBuilder(Ui.tr("Crypto"));
         String stale = HomeData.staleness(data.pricesAt, 5 * 60_000L);
@@ -2967,7 +3041,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         applyTone();
         if (!picksOn()) {
             drawClock(c);
-            if (HomeData.coinCount() > 0) drawQuotes(c);
+            if (Prefs.system()) drawStats(c);
+            else if (HomeData.coinCount() > 0) drawQuotes(c);
             return;
         }
         String hello = Ui.tr("For You");
@@ -3000,7 +3075,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         for (int i = 0; i < 3; i++) if (cardFocus[i].value > 0.02f && (top < 0 || cardFocus[i].value > cardFocus[top].value)) top = i;
         for (int i = 0; i < 3; i++) if (i != top) drawLightCard(c, i);
         if (top >= 0) drawLightCard(c, top);
-        if (HomeData.coinCount() > 0) drawQuotes(c);
+        if (Prefs.system()) drawStats(c);
+        else if (HomeData.coinCount() > 0) drawQuotes(c);
     }
 
     private boolean picksOn() {

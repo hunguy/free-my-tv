@@ -52,6 +52,7 @@ var Prefs = (function () {
     quotes: function () { return pick('quotes', CONFIG.showCrypto !== false); },
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
     shelf: function () { return pick('shelf', null); },
+    recsApps: function () { return pick('recs', null); },
     /** The shelf_apps of the build that last set the shelf, so a new one wins once over the TV's choice. */
     shelfConfig: function () { return pick('shelfConfig', ''); },
     set: function (name, value) { v[name] = value; save(); this.version++; },
@@ -257,6 +258,24 @@ var Data = (function () {
     return null;
   }
 
+  /** Installed and allowed by Settings > Picks (no list saved: every installed service). */
+  function usable(key) {
+    var a = appFor(key);
+    if (!a) return false;
+    var sel = Prefs.recsApps();
+    return !sel || sel.indexOf(a.id) >= 0;
+  }
+
+  /** Installed services the Picks editor can turn on: {id: the app's id, key: the service key, title: its name}. */
+  function pickCandidates() {
+    var out = [];
+    for (var i = 0; i < SERVICES.length; i++) {
+      var a = appFor(SERVICES[i][1]);
+      if (a) out.push({id: a.id, key: SERVICES[i][1], title: SERVICES[i][4]});
+    }
+    return out;
+  }
+
   /** "… Amazon Channel" is sold inside another app; Apple TV is only the streaming service (350; 2 is the store). */
   function service(providerName, providerId) {
     var n = (providerName || '').toLowerCase();
@@ -288,7 +307,9 @@ var Data = (function () {
 
   function sourceStamp() {
     var s = KEY.length + ':' + KEY.slice(-6) + ':' + REGION + (CONFIG.hideAnimation ? ':no-animation' : '');
-    for (var i = 0; i < SERVICES.length; i++) s += appFor(SERVICES[i][1]) ? '1' : '0';
+    var sel = Prefs.recsApps();
+    s += ':' + (sel ? sel.join(',') : '');
+    for (var i = 0; i < SERVICES.length; i++) s += usable(SERVICES[i][1]) ? '1' : '0';
     return s;
   }
 
@@ -304,7 +325,7 @@ var Data = (function () {
     if (!KEY) return list;
     for (var i = 0; i < picks.length; i++) {
       var p = picks[i];
-      if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && appFor(p.app)))) list.push(p);
+      if ((kind === null || kind === p.kind) && (!p.detailed || (p.app && usable(p.app)))) list.push(p);
     }
     if (!list.length) return list;
     var hour = Math.floor(Date.now() / 3600000), out = [], seen = {};
@@ -376,7 +397,7 @@ var Data = (function () {
       p.app = null;
       for (var i = 0; flat && i < flat.length && !p.app; i++) {
         var s = service(flat[i].provider_name, flat[i].provider_id);
-        if (s && appFor(s[1])) { p.app = s[1]; p.service = s[4]; }
+        if (s && usable(s[1])) { p.app = s[1]; p.service = s[4]; }
       }
       if (p.service && p.app) parts.push(p.service);
       p.meta = parts.join(' · ');
@@ -440,7 +461,7 @@ var Data = (function () {
       var ids = [];
       for (var i = 0; res.results && i < res.results.length; i++) {
         var s = service(res.results[i].provider_name, res.results[i].provider_id);
-        if (s && appFor(s[1])) ids.push(res.results[i].provider_id);
+        if (s && usable(s[1])) ids.push(res.results[i].provider_id);
       }
       if (!ids.length) { done(new Error("none of the TV's streaming apps are on TMDB")); return; }
       var common = '&language=' + lang() + '&watch_region=' + REGION + '&with_watch_monetization_types=flatrate&include_adult=false'
@@ -532,6 +553,7 @@ var Data = (function () {
     onChange: function (fn) { listeners.push(fn); },
     setApps: function (apps) { installed = apps; },
     appFor: appFor,
+    pickCandidates: pickCandidates,
     refresh: function () { refreshWeather(); refreshPrices(); refreshRecs(); },
     settingsChanged: function () { pricesAt = 0; refreshPrices(); changed(); },
     get weather() { return weather; },

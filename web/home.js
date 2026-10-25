@@ -378,8 +378,9 @@
   }
 
   function renderQuotes() {
-    var q = $('quotes'), coins = Data.activeCoins();
+    var q = $('quotes');
     q.innerHTML = '';
+    var coins = Data.activeCoins();
     for (var i = 0; i < coins.length; i++) {
       var item = el('span', 'q', q);
       coin(coins[i], item);
@@ -689,14 +690,15 @@
       {label: tr('Forecast'), value: Prefs.forecast() === 'days' ? tr('Next days') : tr('Next hours'),
         step: function (d) { cycle('forecast', ['hours', 'days'], Prefs.forecast(), d); renderPanels(); }},
       {label: tr('Quotes widget'), toggle: Prefs.quotes(),
-        step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); }}
+        step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); renderAll(); }},
+      {label: tr('Picks'), value: '›', step: function (d) { if (d >= 0) openPicksEdit(); }}
     ];
     var names = ['Bitcoin', 'Ethereum', 'Solana', tr('Dollar')];
     var count = Data.currency === 'BRL' ? 4 : 3;
     for (var i = 0; i < count; i++) {
       (function (i) {
-        rows.push({label: names[i], toggle: Prefs.quotes() && Prefs.coin(i), dim: !Prefs.quotes(),
-          step: function () { if (Prefs.quotes()) { Prefs.setCoin(i, !Prefs.coin(i)); Data.settingsChanged(); } }});
+        rows.push({label: names[i], toggle: Prefs.coin(i),
+          step: function () { Prefs.setCoin(i, !Prefs.coin(i)); Data.settingsChanged(); }});
       })(i);
     }
     rows.push({label: tr('Shelf'), value: '›', step: function (d) { if (d >= 0) openShelfEdit(); }});
@@ -826,12 +828,72 @@
   }
 
   function openShelfEdit() {
+    editingPicks = false;
     setClass($('settings'), 'open', false);
     st.zone = Z.EDIT;
     st.edit = 0;
     renderShelfEdit();
     setClass($('shelfedit'), 'open', true);
     updateFocus();
+  }
+
+  var editingPicks = false;
+
+  /** The Picks row's index in Home Settings (it moves with the coin rows above it). */
+  function picksRow() {
+    for (var i = 0; i < rowsNow.length; i++) if (rowsNow[i].label === tr('Picks')) return i;
+    return 0;
+  }
+
+  function picksEditList() {
+    var candidates = Data.pickCandidates(), ids = Prefs.recsApps();
+    if (!ids) ids = candidates.map(function (a) { return a.id; });
+    else ids = ids.slice();
+    return {ids: ids, rows: candidates.slice().sort(function (a, b) {
+      var ia = ids.indexOf(a.id), ib = ids.indexOf(b.id);
+      if (ia >= 0 || ib >= 0) return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+      return a.title.toLowerCase() < b.title.toLowerCase() ? -1 : 1;
+    })};
+  }
+
+  function renderPicksEdit() {
+    var box = $('shelfedit').firstChild, e = picksEditList();
+    box.innerHTML = '';
+    var title = el('div', 'title', box);
+    sym('sparkles', title);
+    title.appendChild(document.createTextNode(tr('Picks')));
+    var list = el('div', 'list', box), holder = el('div', 'rows', list);
+    list.style.height = Math.min(e.rows.length, 7) * 78 + 'px';
+    for (var i = 0; i < e.rows.length; i++) {
+      var a = e.rows[i], at = e.ids.indexOf(a.id), row = el('div', 'row', holder, a.title);
+      el('span', 'value', row, at >= 0 ? tr('On') : tr('Off'));
+      hover(row, Z.EDIT, i);
+    }
+    el('div', 'hint', box, tr('OK adds or removes the app from the cards (Netflix, Prime…).'));
+    updateFocus();
+  }
+
+  function openPicksEdit() {
+    editingPicks = true;
+    setClass($('settings'), 'open', false);
+    st.zone = Z.EDIT;
+    st.edit = 0;
+    renderPicksEdit();
+    setClass($('shelfedit'), 'open', true);
+    updateFocus();
+  }
+
+  function editPicks() {
+    var e = picksEditList(), app = e.rows[st.edit];
+    if (!app) return;
+    var ids = e.ids.slice(), at = ids.indexOf(app.id);
+    if (at >= 0) ids.splice(at, 1);
+    else ids.push(app.id);
+    Prefs.set('recs', ids);
+    Data.refresh();
+    renderPicksEdit();
+    var again = picksEditList();
+    for (var i = 0; i < again.rows.length; i++) if (again.rows[i].id === app.id) st.edit = i;
   }
 
   function editShelf(dx) {
@@ -901,7 +963,8 @@
         if (rowsNow[st.row]) { rowsNow[st.row].step(1); if (st.zone === Z.SETTINGS) renderSettings(); }
         return;
       case Z.EDIT:
-        editShelf(0);
+        if (editingPicks) editPicks();
+        else editShelf(0);
         return;
       case Z.LANG:
         closeLanguages(true);
@@ -956,8 +1019,9 @@
         }
         break;
       case Z.EDIT:
-        if (dy) st.edit = Math.max(0, Math.min(apps.length - 1, st.edit + dy));
-        else if (dx) editShelf(dx);
+        var n = editingPicks ? picksEditList().rows.length : apps.length;
+        if (dy) st.edit = Math.max(0, Math.min(n - 1, st.edit + dy));
+        else if (dx && !editingPicks) editShelf(dx);
         break;
       case Z.LANG:
         if (dy) st.lang = Math.max(0, Math.min(languageChoices().length - 1, st.lang + dy));
@@ -967,7 +1031,13 @@
   }
 
   function back() {
-    if (st.zone === Z.EDIT) { setClass($('shelfedit'), 'open', false); openSettings(); st.row = rowsNow.length - 2; updateFocus(); return; }
+    if (st.zone === Z.EDIT) {
+      setClass($('shelfedit'), 'open', false);
+      openSettings();
+      st.row = editingPicks ? picksRow() : rowsNow.length - 2;
+      updateFocus();
+      return;
+    }
     if (st.zone === Z.LANG) { closeLanguages(false); return; }
     if (sheetOpen()) { closeSheets(); return; }
     if (st.zone === Z.DRAWER) { closeDrawer(); return; }

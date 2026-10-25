@@ -154,7 +154,7 @@ public class SettingsActivity extends Activity {
         // order) and the selection.
         private final List<String[]> shelfRows = new ArrayList<>();
         private final List<String> shelfOrder = new ArrayList<>();
-        private boolean editingTop;
+        private boolean editingTop, editingPicks;
         private int pickFor, pickCurrent, pickScroll;   // pickFor: the remote button (index + 1)
         private static final int PICK_CITY = 0, PICK_LANGUAGE = -1, PICK_SLEEP = -2, PICK_PLACE = -3;
         /** Sleep Timer's pickers (PICK_SLEEP and below): their choices as {value, name}, and the value now. */
@@ -283,6 +283,9 @@ public class SettingsActivity extends Activity {
                     if (at >= shelfRows.size()) return "";
                     String[] app = shelfRows.get(at);
                     int place = shelfOrder.indexOf(app[0]);
+                    if (editingPicks) {
+                        return app[1] + ", " + (place >= 0 ? Ui.tr("On") : Ui.tr("Off"));
+                    }
                     if (editingTop) {
                         return app[1] + ", " + (place >= 0 ? Ui.trf("in the top buttons, place {n}", "n", place + 1)
                                 : Ui.tr("not in the top buttons"));
@@ -641,7 +644,7 @@ public class SettingsActivity extends Activity {
                     return true;
                 case KeyEvent.KEYCODE_DPAD_LEFT:
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
-                    if (down && screen == SHELF_EDIT) {
+                    if (down && screen == SHELF_EDIT && !editingPicks) {
                         moveShelfApp(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
                     } else if (down && (screen == HOME_SETTINGS || screen == REMOTE_KEYS || screen == POWER)) {
                         adjust(e.getKeyCode() == KeyEvent.KEYCODE_DPAD_RIGHT ? 1 : -1);
@@ -679,6 +682,10 @@ public class SettingsActivity extends Activity {
                             } else if (screen == PICKER) {
                                 focus = pickFor - 1;
                                 screen = REMOTE_KEYS;
+                            } else if (screen == SHELF_EDIT && editingPicks) {
+                                pickScroll = 0;   // the picks row is on the list's first screen
+                                focus = PICKS_ROW;
+                                screen = HOME_SETTINGS;
                             } else {
                                 focus = screen == HOME_SETTINGS ? 2 : screen == SHELF_EDIT ? (editingTop ? 4 : 3)
                                         : screen == REMOTE_KEYS ? 5 : screen == POWER ? 6 : 0;
@@ -698,8 +705,10 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, forecast, quotes, then one row per coin. */
-        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, FORECAST_ROW = 7, QUOTES_ROW = 8, COIN_ROWS = 9;
+        private static final String[] WIDGETS = {"quotes", "system", "off"};
+        /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, forecast, corner widget,
+         *  picks, then one row per coin. */
+        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, FORECAST_ROW = 7, QUOTES_ROW = 8, PICKS_ROW = 9, COIN_ROWS = 10;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
         private static final int SETTINGS_VISIBLE = 10;
 
@@ -717,7 +726,8 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Weather widget"));
             l.add(Ui.tr("City"));
             l.add(Ui.tr("Forecast"));
-            l.add(Ui.tr("Quotes widget"));
+            l.add(Ui.tr("Corner widget"));
+            l.add(Ui.tr("Picks"));
             l.add("Bitcoin");
             l.add("Ethereum");
             l.add("Solana");
@@ -741,8 +751,10 @@ public class SettingsActivity extends Activity {
             v[5] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
             v[FORECAST_ROW] = Prefs.forecast().equals("days") ? Ui.tr("Next days") : Ui.tr("Next hours");
-            v[QUOTES_ROW] = onOff(Prefs.quotes());
-            // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
+            String w = Prefs.widget();
+            v[QUOTES_ROW] = w.equals("system") ? Ui.tr("System") : w.equals("off") ? Ui.tr("Off") : Ui.tr("Crypto");
+            v[PICKS_ROW] = "";   // a chevron: OK opens the app picker
+            // The coin rows only matter to the quotes widget: they read as off (and stay locked) while another is on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
             return v;
         }
@@ -788,7 +800,7 @@ public class SettingsActivity extends Activity {
                 for (int r = 0; r < n; r++) {
                     String need = need(r);
                     whyRows[r] = screen == HOME_SETTINGS && pickScroll + r >= COIN_ROWS && !Prefs.quotes()
-                            ? Ui.tr("Turn on the Quotes widget to pick its coins.")
+                            ? Ui.tr("Turn the corner widget to Crypto to pick its coins.")
                             : need == null ? null : Capabilities.missing(getContext(), need);
                 }
             }
@@ -1009,7 +1021,13 @@ public class SettingsActivity extends Activity {
                 case FORECAST_ROW:   // both are in memory: nothing to fetch
                     Prefs.setForecast(Prefs.forecast().equals("days") ? "hours" : "days");
                     return;
-                case QUOTES_ROW: Prefs.setQuotes(!Prefs.quotes()); break;
+                case QUOTES_ROW: {
+                    int at = java.util.Arrays.asList(WIDGETS).indexOf(Prefs.widget());
+                    if (at < 0) at = 0;
+                    Prefs.setWidget(WIDGETS[(at + dir + WIDGETS.length) % WIDGETS.length]);
+                    break;
+                }
+                case PICKS_ROW: return;   // OK opens the picks editor
                 default:
                     if (!Prefs.quotes()) return;
                     Prefs.setCoin(row - COIN_ROWS, !Prefs.coin(row - COIN_ROWS));
@@ -1099,6 +1117,7 @@ public class SettingsActivity extends Activity {
 
         private void openShelfEditor(boolean top) {
             editingTop = top;
+            editingPicks = false;
             shelfOrder.clear();
             if (top) {
                 shelfOrder.addAll(HomeApps.topButtonKeys());
@@ -1110,6 +1129,22 @@ public class SettingsActivity extends Activity {
                 for (String pkg : HomeApps.shelfPackages(getContext())) if (HomeApps.launchIntent(pm, pkg) != null) shelfOrder.add(pkg);
                 rebuildShelfRows(HomeApps.shelfCandidates(getContext()));
             }
+            pickScroll = 0;
+            focus = 0;
+            screen = SHELF_EDIT;
+        }
+
+        private void openPicksEditor() {
+            editingPicks = true;
+            List<String[]> candidates = Recs.pickCandidates(getContext());
+            List<String> sel = Prefs.recsApps();
+            shelfOrder.clear();
+            if (sel == null) {
+                for (String[] c : candidates) shelfOrder.add(c[0]);
+            } else {
+                shelfOrder.addAll(sel);
+            }
+            rebuildShelfRows(candidates);
             pickScroll = 0;
             focus = 0;
             screen = SHELF_EDIT;
@@ -1136,14 +1171,16 @@ public class SettingsActivity extends Activity {
                 focus = i - pickScroll;
                 break;
             }
-            if (editingTop) Prefs.setTopButtons(shelfOrder); else Prefs.setShelf(shelfOrder);
+            if (editingPicks) Prefs.setRecsApps(shelfOrder);
+            else if (editingTop) Prefs.setTopButtons(shelfOrder);
+            else Prefs.setShelf(shelfOrder);
         }
 
         /** OK: puts the app on the shelf (at the end) or takes it off. */
         private void toggleShelfApp() {
             String pkg = shelfRows.get(pickScroll + focus)[0];
             if (shelfOrder.contains(pkg)) shelfOrder.remove(pkg);
-            else if (editingTop || shelfOrder.size() < HomeApps.maxShelf(getContext())) shelfOrder.add(pkg);   // three buttons: no limit to reach
+            else if (editingPicks || editingTop || shelfOrder.size() < HomeApps.maxShelf(getContext())) shelfOrder.add(pkg);   // three buttons and the picks: no limit to reach
             else return;
             refreshShelfRows(pkg);
         }
@@ -1160,7 +1197,7 @@ public class SettingsActivity extends Activity {
 
         private void drawShelfEditor(Canvas c) {
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
-            c.drawText(editingTop ? Ui.tr("Top Buttons") : Ui.tr("Shelf"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
+            c.drawText(editingPicks ? Ui.tr("Picks") : editingTop ? Ui.tr("Top Buttons") : Ui.tr("Shelf"), LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             int rows = rowCount();
             for (int i = 0; i < rows; i++) {
                 String[] app = shelfRows.get(pickScroll + i);
@@ -1185,10 +1222,11 @@ public class SettingsActivity extends Activity {
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
-            if (!editingTop && HomeApps.lowRam(getContext())) {
+            if (!editingTop && !editingPicks && HomeApps.lowRam(getContext())) {
                 c.drawText(Ui.tr("This TV has little memory, so the shelf holds fewer apps."), LIST_X * k + 30 * k, hy + 38 * k, hint);
             }
-            c.drawText(editingTop ? Ui.tr("OK adds or removes a button. ← → change the order.")
+            c.drawText(editingPicks ? Ui.tr("OK adds or removes the app from the cards (Netflix, Prime…).")
+                    : editingTop ? Ui.tr("OK adds or removes a button. ← → change the order.")
                     : HomeApps.maxShelf(getContext()) == Integer.MAX_VALUE ? Ui.tr("OK adds or removes an app. ← → change the order.")
                     : Ui.trf("OK adds or removes (up to {n}). ← → change the order.", "n", HomeApps.maxShelf(getContext())),
                     LIST_X * k + 30 * k, hy, hint);
@@ -1274,7 +1312,12 @@ public class SettingsActivity extends Activity {
                 if (locked) rowLabel.setColor(blend(0x73FFFFFF, 0x731C1C1E, f));
                 float base = rowRect.centerY() + Ui.halfCap(rowLabel);
                 c.drawText(labels[from + i], rowRect.left + 30 * k, base, rowLabel);
-                c.drawText(values[from + i], rowRect.right - 30 * k, base, rowValue);
+                if (!keys && from + i == PICKS_ROW) {
+                    float cw = Symbols.width(getContext(), "chevron_right", 22 * k);
+                    Symbols.draw(getContext(), c, "chevron_right", rowRect.right - 30 * k - cw / 2, rowRect.centerY(), 22 * k, blend(0x66FFFFFF, 0x991C1C1E, f));
+                } else {
+                    c.drawText(values[from + i], rowRect.right - 30 * k, base, rowValue);
+                }
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * pitch + 36) * k;
@@ -1347,9 +1390,13 @@ public class SettingsActivity extends Activity {
             } else if (screen == POWER) {
                 activatePower();
             } else if (screen == HOME_SETTINGS) {
-                adjust(1);
-                invalidate();
-                return;
+                if (pickScroll + focus == PICKS_ROW) {
+                    openPicksEditor();
+                } else {
+                    adjust(1);
+                    invalidate();
+                    return;
+                }
             } else if (focus == 0) {
                 if (busy()) return;
                 screen = HOME_CHOICE;

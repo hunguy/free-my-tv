@@ -209,7 +209,7 @@ final class Recs {
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
         for (Pick p : picks) {
             if ((kind == null || kind.equals(p.kind))
-                    && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::installed)))) list.add(p);   // app missing: skip
+                    && (!p.detailed || (p.pkg != null && have.computeIfAbsent(p.pkg, this::usable)))) list.add(p);   // app missing or off in Picks
         }
         if (list.isEmpty()) return list;
         long hour = System.currentTimeMillis() / 3600_000L;
@@ -332,7 +332,7 @@ final class Recs {
         for (Pick p : wanted()) if (hasImage(p) && seen.add(franchise(p.title))) out.add(p);
         Map<String, Boolean> have = new HashMap<>();
         for (Pick p : picks) {
-            if (p.detailed && p.pkg != null && have.computeIfAbsent(p.pkg, this::installed) && hasImage(p)
+            if (p.detailed && p.pkg != null && have.computeIfAbsent(p.pkg, this::usable) && hasImage(p)
                     && seen.add(franchise(p.title))) out.add(p);
         }
         return out;
@@ -414,7 +414,7 @@ final class Recs {
         for (int i = 0; i < providers.length(); i++) {
             JSONObject o = providers.getJSONObject(i);
             String[] s = service(o.optString("provider_name"), o.optInt("provider_id"));
-            if (s != null && installed(s[2])) services.put(o.getInt("provider_id"), s);
+            if (s != null && usable(s[2])) services.put(o.getInt("provider_id"), s);
         }
         if (services.isEmpty()) throw new IOException(NO_APPS);
         StringBuilder ids = new StringBuilder();
@@ -528,7 +528,7 @@ final class Recs {
         JSONArray flat = br == null ? null : br.optJSONArray("flatrate");
         for (int i = 0; flat != null && i < flat.length() && p.app == null; i++) {
             String[] s = service(flat.getJSONObject(i).optString("provider_name"), flat.getJSONObject(i).optInt("provider_id"));
-            if (s != null && installed(s[2])) {
+            if (s != null && usable(s[2])) {
                 p.app = s[1];
                 p.pkg = s[2];
             }
@@ -603,7 +603,7 @@ final class Recs {
             // Apple TV: only the streaming service (TMDB provider 350); provider 2 is the Apple TV Store (rent or buy).
             if (s[1].equals("appletv") && providerId != 350) continue;
             if (!(s[0].equals("max") ? n.matches(".*\\bmax\\b.*") : n.contains(s[0]))) continue;
-            if (installed(s[2])) return s;
+            if (usable(s[2])) return s;
             if (first == null) first = s;
         }
         return first;
@@ -624,9 +624,29 @@ final class Recs {
         return HomeApps.launchIntent(context.getPackageManager(), pkg) != null;
     }
 
+    /** Installed and allowed by Settings > Picks (null list = every installed TMDB service). */
+    private boolean usable(String pkg) {
+        if (!installed(pkg)) return false;
+        List<String> sel = Prefs.recsApps();
+        return sel == null || sel.contains(pkg);
+    }
+
+    /** Installed TMDB services the Picks editor can turn on, as {package, name}. */
+    static List<String[]> pickCandidates(Context c) {
+        List<String[]> out = new ArrayList<>();
+        for (String[] s : SERVICES) {
+            if (HomeApps.launchIntent(c.getPackageManager(), s[2]) == null) continue;
+            String name = SERVICE_NAME.get(s[1]);
+            out.add(new String[] {s[2], name == null ? s[1] : name});
+        }
+        return out;
+    }
+
     private long sourceStamp() {
         long stamp = (Config.TMDB_KEY.hashCode() * 31L + REGION.hashCode()) * 31L + (Config.HIDE_ANIMATION ? 1 : 0);
-        for (String[] service : SERVICES) stamp = stamp * 31L + (installed(service[2]) ? service[2].hashCode() : 0);
+        List<String> sel = Prefs.recsApps();
+        stamp = stamp * 31L + (sel == null ? 1 : sel.hashCode());
+        for (String[] service : SERVICES) stamp = stamp * 31L + (usable(service[2]) ? service[2].hashCode() : 0);
         return stamp;
     }
 
