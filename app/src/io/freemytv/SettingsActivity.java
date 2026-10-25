@@ -1213,12 +1213,14 @@ public class SettingsActivity extends Activity {
                 c.drawText(TextUtils.ellipsize(app[1], new TextPaint(rowLabel), 520 * k, TextUtils.TruncateAt.END).toString(), rowRect.left + 30 * k, base, rowLabel);
                 float right = rowRect.right - 30 * k;
                 if (place >= 0 && !off) {
-                    // On the shelf: a check, as in the pickers, after its place.
+                    // On the shelf: a check, as in the pickers, after its place (the picks have no order: just On).
                     float cw = Symbols.width(getContext(), "check", 26 * k);
                     Symbols.draw(getContext(), c, "check", right - cw / 2, rowRect.centerY(), 26 * k, blend(0xFFFFFFFF, INK, f));
                     right -= cw + 16 * k;
                 }
-                c.drawText(off ? Ui.tr("Unavailable") : place >= 0 ? "#" + (place + 1) : Ui.tr("shelf|Off"), right, base, rowValue);
+                c.drawText(off ? Ui.tr("Unavailable")
+                        : place < 0 ? Ui.tr("shelf|Off")
+                        : editingPicks ? Ui.tr("On") : "#" + (place + 1), right, base, rowValue);
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
             float hy = (LIST_TOP + 20 + rows * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;

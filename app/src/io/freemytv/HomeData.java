@@ -11,9 +11,7 @@ import android.os.StatFs;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
-import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -97,9 +95,10 @@ final class HomeData {
         weatherFailedAt = 0;
     }
 
-    /** RAM used, CPU used, free storage. CPU needs two samples (~2 s apart); true when a value changed. */
+    /** RAM used and free storage; true when one of them changed. (CPU load isn't here: Android won't let an app read
+     *  /proc/stat, loadavg or PSI, and comparing CPU times between two samples needs it.) */
     boolean refreshStats() {
-        int wasRam = ramPct, wasCpu = cpuPct;
+        int wasRam = ramPct;
         long wasStorage = freeStorage;
         try {
             ActivityManager am = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
@@ -110,15 +109,9 @@ final class HomeData {
             }
             StatFs fs = new StatFs(Environment.getDataDirectory().getPath());
             freeStorage = fs.getAvailableBytes();
-            long[] cpu = readCpu();
-            if (cpu != null && prevCpu != null) {
-                long dt = cpu[0] - prevCpu[0], di = cpu[1] - prevCpu[1];
-                if (dt > 0) cpuPct = (int) Math.round(100.0 * (dt - di) / dt);
-            }
-            if (cpu != null) prevCpu = cpu;
         } catch (RuntimeException ignored) {
         }
-        return wasRam != ramPct || wasCpu != cpuPct || wasStorage != freeStorage;
+        return wasRam != ramPct || wasStorage != freeStorage;
     }
 
     static String ramText() {
@@ -126,32 +119,11 @@ final class HomeData {
         return d == null || d.ramPct < 0 ? "—" : d.ramPct + "%";
     }
 
-    static String cpuText() {
-        HomeData d = instance;
-        return d == null || d.cpuPct < 0 ? "—" : d.cpuPct + "%";
-    }
-
     static String storageText() {
         HomeData d = instance;
         if (d == null || d.freeStorage < 0) return "—";
         if (d.freeStorage >= 1L << 30) return String.format(locale(), "%.0fG", d.freeStorage / (1024.0 * 1024.0 * 1024.0));
         return String.format(locale(), "%.0fM", d.freeStorage / (1024.0 * 1024.0));
-    }
-
-    /** {total, idle} from /proc/stat, or null. */
-    private static long[] readCpu() {
-        try (BufferedReader in = new BufferedReader(new FileReader("/proc/stat"), 256)) {
-            String line = in.readLine();
-            if (line == null || !line.startsWith("cpu ")) return null;
-            String[] p = line.split("\\s+");
-            if (p.length < 5) return null;
-            long total = 0, idle = Long.parseLong(p[4]);
-            if (p.length > 5) idle += Long.parseLong(p[5]);   // iowait
-            for (int i = 1; i < p.length; i++) total += Long.parseLong(p[i]);
-            return new long[] {total, idle};
-        } catch (IOException | NumberFormatException e) {
-            return null;
-        }
     }
 
     static String coinName(int i) {
@@ -213,9 +185,8 @@ final class HomeData {
     final double[] changes = {Double.NaN, Double.NaN, Double.NaN, Double.NaN};
     volatile long pricesAt, weatherAt;
     volatile Weather weather = new Weather();
-    volatile int ramPct = -1, cpuPct = -1;
+    volatile int ramPct = -1;
     volatile long freeStorage = -1;
-    private long[] prevCpu;
 
     private final Context context;
     private final SharedPreferences cache;

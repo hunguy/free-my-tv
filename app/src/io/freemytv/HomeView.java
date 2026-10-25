@@ -1331,8 +1331,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private float shelfOn;
 
     /** Measured once per value change: this row is redrawn on every frame of the corner buttons' focus animation. */
-    private final String[] stats = {"", "", "", "", "", ""};
-    private final float[] statsWidths = new float[6];
+    private final String[] stats = {"", "", "", ""};
+    private final float[] statsWidths = new float[4];
     private String statsKey = "";
 
     /** RAM used, CPU used and free storage, in the corner where the quotes go. */
@@ -1345,24 +1345,21 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         if (fade <= 0.01f) return;
         int textColor = text.getColor();
         text.setColor(Ui.alpha(textColor, fade));
-        String key = HomeData.ramText() + "|" + HomeData.cpuText() + "|" + HomeData.storageText() + "|"
-                + Ui.language + "|" + text.getTextSize();
+        String key = HomeData.ramText() + "|" + HomeData.storageText() + "|" + Ui.language + "|" + text.getTextSize();
         if (!key.equals(statsKey)) {
             statsKey = key;
             stats[0] = "RAM";
             stats[1] = HomeData.ramText();
-            stats[2] = "CPU";
-            stats[3] = HomeData.cpuText();
-            stats[4] = Ui.tr("Free");
-            stats[5] = HomeData.storageText();
-            for (int i = 0; i < 6; i++) statsWidths[i] = text.measureText(stats[i]);
+            stats[2] = Ui.tr("Free");
+            stats[3] = HomeData.storageText();
+            for (int i = 0; i < 4; i++) statsWidths[i] = text.measureText(stats[i]);
         }
-        float gap = (clock ? 8 : 6) * k, spacing = (clock ? 32 : 24) * k, total = spacing * 2;
-        for (int i = 0; i < 3; i++) total += statsWidths[i * 2] + gap + statsWidths[i * 2 + 1];
+        float gap = (clock ? 8 : 6) * k, spacing = (clock ? 32 : 24) * k, total = spacing;
+        for (int i = 0; i < 2; i++) total += statsWidths[i * 2] + gap + statsWidths[i * 2 + 1];
         float base = clock ? L_QUOTES_BASE * k : (L_TABBAR_TOP + L_TABBAR_H / 2) * k + Ui.halfCap(text);
         float x = clock ? MARGIN * k : CONTENT_R * k - total;   // the clock design has no tab bar: the row starts at the margin
         int dim = Ui.alpha(tone(0xB38E8E93, 0x8CFFFFFF), fade);
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 2; i++) {
             text.setColor(dim);
             c.drawText(stats[i * 2], x, base, text);
             x += statsWidths[i * 2] + gap;
@@ -1840,9 +1837,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawerCard(c, r);
         float x = r.left + 34 * k, right = r.right - 34 * k;
         c.drawText(Ui.tr("System"), x, r.top + 54 * k, cardTitle);
-        String[] labels = {"RAM", "CPU", Ui.tr("Free storage")};
-        String[] values = {HomeData.ramText(), HomeData.cpuText(), HomeData.storageText()};
-        for (int i = 0; i < 3; i++) {
+        String[] labels = {"RAM", Ui.tr("Free storage")};
+        String[] values = {HomeData.ramText(), HomeData.storageText()};
+        for (int i = 0; i < 2; i++) {
             float base = r.top + (110 + 52 * i) * k;
             c.drawText(labels[i], x, base, cardText);
             c.drawText(values[i], right, base, pricePaint);
@@ -1854,7 +1851,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * sunrise and sunset, "12 min ago").
      */
     private String drawerCardsKey() {
-        return data.weatherAt + "|" + data.pricesAt + "|" + data.ramPct + "|" + data.cpuPct + "|" + data.freeStorage
+        return data.weatherAt + "|" + data.pricesAt + "|" + data.ramPct + "|" + data.freeStorage
                 + "|" + Prefs.version + "|" + Ui.language + "|"
                 + Float.floatToIntBits(dark()) + "|" + System.currentTimeMillis() / 60_000;
     }
@@ -2918,8 +2915,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     /** The quotes card as TalkBack reads it: each coin with its price and 24 h change. */
     private String statsText() {
-        return Ui.tr("System") + ". RAM " + HomeData.ramText() + ", CPU " + HomeData.cpuText() + ", "
-                + Ui.tr("Free storage") + " " + HomeData.storageText() + ".";
+        return Ui.tr("System") + ". RAM " + HomeData.ramText() + ", " + Ui.tr("Free storage") + " "
+                + HomeData.storageText() + ".";
     }
 
     private String quotesText() {
