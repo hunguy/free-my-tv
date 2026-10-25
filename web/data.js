@@ -53,6 +53,8 @@ var Prefs = (function () {
     coin: function (i) { var c = pick('coins', null); return c ? c[i] !== false : true; },
     shelf: function () { return pick('shelf', null); },
     recsApps: function () { return pick('recs', null); },
+    /** The picks' layout: 'poster' (one full-screen backdrop, the default) or 'cards' (the three cards). */
+    picksLayout: function () { return pick('picksLayout', 'poster') === 'cards' ? 'cards' : 'poster'; },
     /** The shelf_apps of the build that last set the shelf, so a new one wins once over the TV's choice. */
     shelfConfig: function () { return pick('shelfConfig', ''); },
     set: function (name, value) { v[name] = value; save(); this.version++; },
@@ -320,8 +322,8 @@ var Data = (function () {
   }
 
   /** This hour's 3 picks: movies ("movie"), shows ("tv") or both (null). */
-  function now(kind) {
-    var list = [];
+  function now(kind, cap) {
+    var list = [], most = cap || 3;   // the full-screen layout keeps a dozen ready, one showing at a time
     if (!KEY) return list;
     for (var i = 0; i < picks.length; i++) {
       var p = picks[i];
@@ -329,7 +331,7 @@ var Data = (function () {
     }
     if (!list.length) return list;
     var hour = Math.floor(Date.now() / 3600000), out = [], seen = {};
-    for (var j = 0; j < list.length && out.length < 3; j++) {
+    for (var j = 0; j < list.length && out.length < most; j++) {
       var q = list[(hour * 3 + j) % list.length], f = franchise(q.title);
       if (!seen[f]) { seen[f] = true; out.push(q); }
     }

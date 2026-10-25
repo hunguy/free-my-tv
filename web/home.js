@@ -1,6 +1,6 @@
 /*
  * The home screen for web-app TVs (LG webOS, Samsung Tizen), with the Android app's design and behavior (HomeView):
- *  - top: the "For You" title and the tabs (Explore, Movies, Shows); icon-only glass buttons at the right (Live TV,
+ *  - top: the tabs (Explore, Movies, Shows); icon-only glass buttons at the right (Live TV,
  *    HDMI Inputs, Settings) and the crypto quotes at the end of the tab row;
  *  - three picks for this hour in the selected tab; the background is the first one's photo, blurred and almost white;
  *  - the glass shelf with the apps; ↓ opens the drawer (inputs, shortcuts, weather, prices); ↑ or Back closes it;
@@ -307,13 +307,14 @@
     }
     list = $('buttons').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.TOP && st.top === 3 + i);
-    setClass($('quotes'), 'hide', st.zone === Z.TOP && st.top >= 3);
+    setClass($('quotes'), 'drop', st.zone === Z.TOP && st.top >= 3);
     list = $('cards').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.CARDS && st.card === i);
     list = $('tiles').children;
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.SHELF && st.shelf === i);
     setClass($('tiles'), 'on', st.zone === Z.SHELF);
     setClass($('platter'), 'on', st.zone === Z.SHELF);
+    setClass(body, 'poster-focus', Prefs.picksLayout() === 'poster' && st.zone === Z.CARDS);
     revealShelf();
     list = document.querySelectorAll('#drawer .key');
     for (i = 0; i < list.length; i++) setClass(list[i], 'focus', st.zone === Z.DRAWER && st.drawer === i);
@@ -357,7 +358,7 @@
   var TAB_KIND = [null, 'movie', 'tv'];
 
   function renderTop() {
-    $('title').textContent = tr('For You');
+    $('title').textContent = '';
     var tabs = $('tabs');
     tabs.innerHTML = '';
     var names = [tr('Explore'), tr('Movies'), tr('Shows')];
@@ -391,13 +392,31 @@
   // MARK: - Picks and background
 
   function renderCards() {
-    var list = Data.picks(TAB_KIND[st.tab]);
+    var poster = Prefs.picksLayout() === 'poster';
+    setClass(body, 'picks-poster', poster);
+    var list = Data.picks(TAB_KIND[st.tab], poster ? 12 : 3);
     var holder = $('cards');
     setClass(body, 'no-picks', !list.length);
-    var same = list.length === cards.length;
+    var same = list.length === cards.length && cards.poster === poster;
     for (var i = 0; same && i < list.length; i++) same = list[i].id === cards[i].id && list[i].backdrop === cards[i].backdrop && list[i].meta === cards[i].meta;
-    if (same && holder.children.length === list.length) return;
+    if (same && (poster || holder.children.length === list.length)) {
+      if (poster) {
+        renderPoster(list);
+        backdrop(list.length ? Data.image(list[st.card].backdrop, 'w300') : '');
+      }
+      return;
+    }
     cards = list;
+    cards.poster = poster;
+    st.card = Math.min(st.card, Math.max(0, list.length - 1));
+    if (!list.length && st.zone === Z.CARDS) st.zone = Z.SHELF;
+    if (poster) {
+      holder.innerHTML = '';
+      renderPoster(list);
+      backdrop(list.length ? Data.image(list[st.card].backdrop, 'w300') : '');
+      updateFocus();
+      return;
+    }
     holder.innerHTML = '';
     var rects = [[80, 1040], [1160, 320], [1520, 320]];
     for (var c = 0; c < list.length; c++) {
@@ -410,10 +429,30 @@
       if (c === 0 && p.meta) el('div', 'meta', card, p.meta);
       hover(card, Z.CARDS, c);
     }
-    st.card = Math.min(st.card, Math.max(0, list.length - 1));
-    if (!list.length && st.zone === Z.CARDS) st.zone = Z.SHELF;
     backdrop(list.length ? Data.image(list[0].backdrop, 'w300') : '');
     updateFocus();
+  }
+
+  var posterUrl = null;
+
+  /** Full screen: the pick on screen, its photo the whole screen and its title over the fade. */
+  function renderPoster(list) {
+    var p = list.length ? list[Math.min(st.card, list.length - 1)] : null, box = $('poster');
+    var url = p ? Data.image(p.backdrop, 'w1280') : '';
+    if (url !== posterUrl) {
+      // The one on screen goes to the back layer and fades out under the new photo (0.22 s, as on Android).
+      var back = box.childNodes[1], front = box.firstChild, was = posterUrl;
+      posterUrl = url;
+      if (was) {
+        back.style.backgroundImage = 'url(' + was + ')';
+        setClass(back, 'out', false);
+        back.offsetWidth;   // the fade starts from opaque, not from the last time it faded
+      }
+      front.style.backgroundImage = url ? 'url(' + url + ')' : '';
+      if (was) setClass(back, 'out', true);
+    }
+    box.childNodes[2].textContent = p ? p.title : '';
+    box.childNodes[3].textContent = p && p.meta ? p.meta : '';
   }
 
   var bgUrl = null, bgFront = 'bgA';
@@ -691,7 +730,9 @@
         step: function (d) { cycle('forecast', ['hours', 'days'], Prefs.forecast(), d); renderPanels(); }},
       {label: tr('Quotes widget'), toggle: Prefs.quotes(),
         step: function () { Prefs.set('quotes', !Prefs.quotes()); Data.settingsChanged(); renderAll(); }},
-      {label: tr('Picks'), value: '›', step: function (d) { if (d >= 0) openPicksEdit(); }}
+      {label: tr('Picks'), value: '›', step: function (d) { if (d >= 0) openPicksEdit(); }},
+      {label: tr('Picks layout'), value: Prefs.picksLayout() === 'poster' ? tr('Full screen') : tr('Cards'),
+        step: function (d) { cycle('picksLayout', ['poster', 'cards'], Prefs.picksLayout(), d); renderAll(); }}
     ];
     var names = ['Bitcoin', 'Ethereum', 'Solana', tr('Dollar')];
     var count = Data.currency === 'BRL' ? 4 : 3;
@@ -985,21 +1026,28 @@
         if (dx) st.shelf = Math.max(0, Math.min(shelf.length - 1, st.shelf + dx));
         else if (dy > 0) { openDrawer(); return; }
         else if (dy < 0) {
-          if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardNodes, centerX(tiles[st.shelf])); }
+          if (cards.length && Prefs.picksLayout() === 'poster') st.zone = Z.CARDS;   // the pick on screen stays
+          else if (cards.length) { st.zone = Z.CARDS; st.card = nearest(cardNodes, centerX(tiles[st.shelf])); }
           else { st.zone = Z.TOP; st.top = st.tab; }
         }
         break;
       case Z.CARDS:
-        if (dx) st.card = Math.max(0, Math.min(cards.length - 1, st.card + dx));
-        else if (dy < 0) { st.zone = Z.TOP; st.top = st.tab; }
-        else if (shelf.length) { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
+        if (dx) {
+          var n = cards.length, at = st.card;
+          // Full screen: the picks wrap around (there is always another). Cards: they stay within the three.
+          st.card = Prefs.picksLayout() === 'poster' ? (at + dx + n) % n : Math.max(0, Math.min(n - 1, at + dx));
+          if (st.card !== at && Prefs.picksLayout() === 'poster') renderCards();
+        } else if (dy < 0) { st.zone = Z.TOP; st.top = st.tab; }
+        else if (shelf.length && Prefs.picksLayout() !== 'poster') { st.zone = Z.SHELF; st.shelf = nearest(tiles, centerX(cardNodes[st.card])); }
+        else if (shelf.length) st.zone = Z.SHELF;
         break;
       case Z.TOP:
         if (dx) {
           st.top = Math.max(0, Math.min(5, st.top + dx));
           if (st.top < 3) selectTab(st.top);   // as on Apple TV: focusing a tab selects it
         } else if (dy > 0) {
-          if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
+          if (cards.length && Prefs.picksLayout() === 'poster') st.zone = Z.CARDS;   // the pick on screen stays
+          else if (cards.length) { st.zone = Z.CARDS; st.card = Math.min(cards.length - 1, st.top < 3 ? 0 : cards.length - 1); }
           else st.zone = Z.SHELF;
         }
         break;

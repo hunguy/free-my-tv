@@ -182,9 +182,32 @@ final class Backdrop {
         return new Bitmap[] {out, frost};
     }
 
+    /**
+     * The pick's photo for the full-screen layout (Picks layout: Full screen): the UI's size, center-cropped, with its
+     * bottom third fading out, so the frosted sky and the dock's glass show through and it has no hard edge. The fade
+     * is in the pixels: drawing it is one texture (HARDWARE).
+     */
+    static Bitmap hero(Bitmap src) {
+        Bitmap crop = center(src, (float) W / H);
+        if (crop != src) src.recycle();
+        Bitmap out = Ui.downscale(crop, W, H);
+        if (out != crop) crop.recycle();
+        if (!out.isMutable()) {
+            Bitmap copy = out.copy(Bitmap.Config.ARGB_8888, true);
+            out.recycle();
+            out = copy;
+        }
+        Canvas c = new Canvas(out);
+        Paint fade = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fade.setShader(new LinearGradient(0, H * 0.58f, 0, H,
+                new int[] {0xFF000000, 0xFF000000, 0x00000000}, new float[] {0, 0.35f, 1}, Shader.TileMode.CLAMP));
+        fade.setXfermode(new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN));
+        c.drawRect(0, 0, W, H, fade);
+        return gpu(out);
+    }
+
     /** The center of the photo at the card's aspect ratio, filtered down to the exact size. */
-    private static Bitmap card(Bitmap full, int w, int h) {
-        Bitmap b = center(full, (float) w / h);
+    private static Bitmap card(Bitmap full, int w, int h) {        Bitmap b = center(full, (float) w / h);
         Bitmap out = Ui.downscale(b, w, h);
         if (b != full && b != out) b.recycle();
         return out == full ? gpu(full.copy(Bitmap.Config.ARGB_8888, false)) : gpu(out);

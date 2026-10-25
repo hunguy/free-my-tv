@@ -706,9 +706,11 @@ public class SettingsActivity extends Activity {
 
         private static final String[] UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
         private static final String[] WIDGETS = {"quotes", "system", "off"};
+        private static final String[] LAYOUTS = {"poster", "cards"};
         /** Home Settings: language, temperature, theme, my photos, sounds, weather, city, forecast, corner widget,
-         *  picks, then one row per coin. */
-        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, FORECAST_ROW = 7, QUOTES_ROW = 8, PICKS_ROW = 9, COIN_ROWS = 10;
+         *  picks, picks layout, then one row per coin. */
+        private static final int PHOTOS_ROW = 3, CITY_ROW = 6, FORECAST_ROW = 7, QUOTES_ROW = 8, PICKS_ROW = 9,
+                LAYOUT_ROW = 10, COIN_ROWS = 11;
         /** Home Settings rows on screen at once (what fits above the hints at 1080p); a longer list scrolls. */
         private static final int SETTINGS_VISIBLE = 10;
 
@@ -728,6 +730,7 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Forecast"));
             l.add(Ui.tr("Corner widget"));
             l.add(Ui.tr("Picks"));
+            l.add(Ui.tr("Picks layout"));
             l.add("Bitcoin");
             l.add("Ethereum");
             l.add("Solana");
@@ -754,6 +757,7 @@ public class SettingsActivity extends Activity {
             String w = Prefs.widget();
             v[QUOTES_ROW] = w.equals("system") ? Ui.tr("System") : w.equals("off") ? Ui.tr("Off") : Ui.tr("Crypto");
             v[PICKS_ROW] = "";   // a chevron: OK opens the app picker
+            v[LAYOUT_ROW] = Prefs.picksPoster() ? Ui.tr("Full screen") : Ui.tr("Cards");
             // The coin rows only matter to the quotes widget: they read as off (and stay locked) while another is on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
             return v;
@@ -1028,6 +1032,12 @@ public class SettingsActivity extends Activity {
                     break;
                 }
                 case PICKS_ROW: return;   // OK opens the picks editor
+                case LAYOUT_ROW: {
+                    int at = java.util.Arrays.asList(LAYOUTS).indexOf(Prefs.picksLayout());
+                    if (at < 0) at = 0;
+                    Prefs.setPicksLayout(LAYOUTS[(at + dir + LAYOUTS.length) % LAYOUTS.length]);
+                    break;
+                }
                 default:
                     if (!Prefs.quotes()) return;
                     Prefs.setCoin(row - COIN_ROWS, !Prefs.coin(row - COIN_ROWS));

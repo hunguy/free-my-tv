@@ -47,6 +47,7 @@ final class Recs {
         String kind;            // "movie" or "tv"
         String title, backdrop, meta = "", app, pkg;
         String link;            // opens the title in its app (looked up with Watchmode), or null: the app's home
+        String imdb;            // "tt0120338", or null: Nuvio has nothing to open
         boolean detailed;
         java.io.File photo;     // one of your own photos (Photos): no title, no caption
     }
@@ -60,7 +61,7 @@ final class Recs {
     private static final int ANIMATION = 16;
     private static final long LIST_EVERY = 6 * 3600_000L;
     /** Bump when what is saved for each title changes (the saved list is discarded and fetched again). */
-    private static final int CACHE_VERSION = 4;
+    private static final int CACHE_VERSION = 5;
     private static final int MANHA = 0, TARDE = 1, NOITE = 2;
     /** Service name on TMDB (part of the name, lowercase) → TV app (HomeApps key, package). */
     private static final String[][] SERVICES = {
@@ -204,6 +205,11 @@ final class Recs {
 
     /** This hour's 3, movies only ("movie") or shows only ("tv"); null = both (the home screen tabs). */
     List<Pick> now(String kind) {
+        return now(kind, 3);
+    }
+
+    /** This hour's picks, up to `cap`: the poster layout shows one at a time and has the next ones ready. */
+    List<Pick> now(String kind, int cap) {
         List<Pick> list = new ArrayList<>();
         if (!hasKey(context)) return list;    // no TMDB key: no recommendations
         Map<String, Boolean> have = new HashMap<>();   // one look per app, not per title (this runs every 15 s)
@@ -216,7 +222,7 @@ final class Recs {
         // Three per hour, never two from the same franchise ("Law & Order" and "Law & Order: Special…").
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
-        for (int i = 0; i < list.size() && out.size() < 3; i++) {
+        for (int i = 0; i < list.size() && out.size() < cap; i++) {
             Pick p = list.get((int) ((hour * 3 + i) % list.size()));
             if (seen.add(franchise(p.title))) out.add(p);
         }
@@ -234,6 +240,14 @@ final class Recs {
     /** Name of the service the pick is on ("Netflix"), or empty. */
     static String serviceName(Pick p) {
         return p == null || p.app == null ? "" : SERVICE_NAME.get(p.app);
+    }
+
+    static final String NUVIO_PKG = "com.nuvio.tv";
+
+    /** App link for Nuvio, or null when this title has no IMDb id. */
+    static String nuvioLink(Pick p) {
+        if (p == null || p.imdb == null) return null;
+        return "nuvio://" + (p.kind.equals("tv") ? "series" : "movie") + "/" + p.imdb;
     }
 
     /** The pick's ready backdrop (or null: builds it in the background and notifies when it's ready). */
@@ -386,8 +400,9 @@ final class Recs {
     List<Pick> wanted() {
         List<Pick> out = new ArrayList<>();
         java.util.Set<String> seen = new java.util.HashSet<>();
+        int cap = Prefs.picksPoster() ? 12 : 3;   // the poster layout keeps a dozen ready, one showing at a time
         for (String kind : new String[] {null, "movie", "tv"}) {
-            for (Pick p : now(kind)) if (seen.add(key(p))) out.add(p);
+            for (Pick p : now(kind, cap)) if (seen.add(key(p))) out.add(p);
         }
         return out;
     }
@@ -505,8 +520,12 @@ final class Recs {
     /** Genre, runtime (or seasons) and the service it's on, among the ones the TV has. */
     private void fetchDetails(Pick p) throws Exception {
         JSONObject o = get("/" + p.kind + "/" + p.id
-                + "?language=" + lang() + "&append_to_response=watch/providers,images&include_image_language=null," + Ui.language.replaceAll("-.*", "") + ",en");
+                + "?language=" + lang() + "&append_to_response=watch/providers,images,external_ids&include_image_language=null," + Ui.language.replaceAll("-.*", "") + ",en");
         p.title = title(p, o);
+        String id = o.optString("imdb_id");
+        JSONObject ext = o.optJSONObject("external_ids");
+        if (id.isEmpty() && ext != null) id = ext.optString("imdb_id");
+        p.imdb = id.startsWith("tt") ? id : null;
         String best = bestBackdrop(o.optJSONObject("images"));
         if (best != null) p.backdrop = best;
         List<String> parts = new ArrayList<>();
@@ -768,6 +787,29 @@ final class Recs {
         prune(f.getParentFile());
     }
 
+    /** The pick's photo from disk (background threads only), or null if not downloaded yet. */
+    Bitmap photo(Pick p) {
+        File f = readyImage(p);
+        if (f == null) return null;
+        try {
+            return decode(f);
+        } catch (Exception | OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    private static Bitmap decode(File f) throws IOException {
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(f.getPath(), bounds);
+        BitmapFactory.Options opts = new BitmapFactory.Options();
+        opts.inSampleSize = 1;
+        while (bounds.outWidth / (opts.inSampleSize * 2) >= Backdrop.W) opts.inSampleSize *= 2;
+        Bitmap b = BitmapFactory.decodeFile(f.getPath(), opts);
+        if (b == null) throw new IOException("unreadable image");
+        return b;
+    }
+
     /** Reads the photo (≥ the UI's width) and builds the backdrop (Backdrop: cards plus frosted and glass versions). */
     private void loadImage(Pick p) {
         synchronized (images) {
@@ -776,15 +818,8 @@ final class Recs {
         File f = imageFile(p);
         try {
             download(p);
-            BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(f.getPath(), bounds);
-            BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inSampleSize = 1;
-            while (bounds.outWidth / (opts.inSampleSize * 2) >= Backdrop.W) opts.inSampleSize *= 2;
-            Bitmap b = BitmapFactory.decodeFile(f.getPath(), opts);
-            if (b == null) throw new IOException("unreadable image");
-            AppLog.w("backdrop \u201c" + p.title + "\u201d: " + bounds.outWidth + "×" + bounds.outHeight + " → " + Backdrop.W + "×" + Backdrop.H);
+            Bitmap b = decode(f);
+            AppLog.w("backdrop \u201c" + p.title + "\u201d: " + b.getWidth() + "×" + b.getHeight() + " → " + Backdrop.W + "×" + Backdrop.H);
             boolean forLight = light;
             Backdrop backdrop = Backdrop.make(b, forLight);
             if (forLight != light) return;   // the design changed midway: this one is stale
@@ -834,6 +869,7 @@ final class Recs {
             for (Pick p : picks) {
                 a.put(new JSONObject().put("id", p.id).put("kind", p.kind).put("title", p.title).put("backdrop", p.backdrop).put("link", p.link == null ? "" : p.link)
                         .put("meta", p.meta).put("app", p.app == null ? "" : p.app).put("pkg", p.pkg == null ? "" : p.pkg)
+                        .put("imdb", p.imdb == null ? "" : p.imdb)
                         .put("detailed", p.detailed));
             }
             SharedPreferences.Editor e = cache.edit().putString("picks", a.toString()).putInt("period", period).putLong("listAt", listAt)
@@ -862,6 +898,7 @@ final class Recs {
             p.meta = o.optString("meta");
             p.app = o.optString("app").isEmpty() ? null : o.optString("app");
             p.pkg = o.optString("pkg").isEmpty() ? null : o.optString("pkg");
+            p.imdb = o.optString("imdb").isEmpty() ? null : o.optString("imdb");
             p.detailed = o.optBoolean("detailed");
             out.add(p);
         }

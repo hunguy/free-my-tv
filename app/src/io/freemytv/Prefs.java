@@ -192,6 +192,14 @@ final class Prefs {
         put("recs", sb.toString());
     }
 
+    /** The picks' layout: "poster" (one full-screen backdrop, the default) or "cards" (the three cards). */
+    static String picksLayout() {
+        String v = app == null ? "poster" : sp().getString("picksLayout", "poster");
+        return "cards".equals(v) ? "cards" : "poster";
+    }
+    static void setPicksLayout(String v) { put("picksLayout", "cards".equals(v) ? "cards" : "poster"); }
+    static boolean picksPoster() { return picksLayout().equals("poster"); }
+
     // MARK: - Shelf
 
     /** Packages on the home shelf, in order; null until the user edits it (then the built-in list applies). */

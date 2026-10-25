@@ -533,6 +533,9 @@ final class HomeApps {
                 if (plain != null) plain.addFlags(Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
                 if (intent != null && it.uri != null) {
                     intent = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(it.uri)).addCategory(Intent.CATEGORY_BROWSABLE).setPackage(it.pkg);
+                    // Nuvio keeps its first screen when its MainActivity is already running (its onNewIntent ignores the
+                    // link), so the same address is only read on a cold start: a fresh task makes it one (#232).
+                    if (Recs.NUVIO_PKG.equals(it.pkg)) intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK);
                 }
                 break;
             case LIVE_TV:
